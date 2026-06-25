@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Summarizer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>AI Research Assistant</h1>
+          <p id="pageTitle" class="page-title">Current page</p>
+        </div>
+        <button id="themeToggle" class="icon-button" title="Toggle dark mode" type="button">◐</button>
+      </header>
+
+      <nav class="tabs" aria-label="Workspace tabs">
+        <button class="tab is-active" data-tab="summary" type="button">Summary</button>
+        <button class="tab" data-tab="compare" type="button">Compare</button>
+        <button class="tab" data-tab="chat" type="button">Chat</button>
+      </nav>
+
+      <section id="status" class="status" aria-live="polite"></section>
+
+      <section id="summary" class="panel is-active">
+        <div class="toolbar">
+          <button id="summarizeBtn" class="primary" type="button">Summarize</button>
+          <button id="copySummaryBtn" type="button">Copy</button>
+          <button id="downloadTxtBtn" type="button">TXT</button>
+          <button id="downloadMdBtn" type="button">MD</button>
+        </div>
+
+        <article class="result-block">
+          <h2>Short Summary</h2>
+          <p id="shortSummary" class="empty">No summary yet.</p>
+        </article>
+
+        <article class="result-block">
+          <h2>Detailed Summary</h2>
+          <p id="detailedSummary" class="empty">Run a summary to fill this section.</p>
+        </article>
+
+        <article class="result-block">
+          <h2>Key Points</h2>
+          <ul id="keyPoints" class="clean-list"></ul>
+        </article>
+
+        <article class="result-block">
+          <h2>Keywords</h2>
+          <div id="keywords" class="chips"></div>
+        </article>
+      </section>
+
+      <section id="compare" class="panel">
+        <label class="field">
+          <span>URLs</span>
+          <textarea id="compareUrls" rows="5" placeholder="https://example.com/article-one&#10;https://example.com/article-two"></textarea>
+        </label>
+        <button id="compareBtn" class="primary full-width" type="button">Compare</button>
+
+        <article class="result-block">
+          <h2>Similarities</h2>
+          <ul id="similarities" class="clean-list"></ul>
+        </article>
+        <article class="result-block">
+          <h2>Differences</h2>
+          <ul id="differences" class="clean-list"></ul>
+        </article>
+        <article class="result-block">
+          <h2>Conclusion</h2>
+          <p id="conclusion" class="empty">No comparison yet.</p>
+        </article>
+      </section>
+
+      <section id="chat" class="panel">
+        <div class="toolbar">
+          <button id="indexBtn" class="primary" type="button">Index Page</button>
+          <button id="clearChatBtn" type="button">Clear</button>
+        </div>
+        <div id="chatLog" class="chat-log"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="questionInput" type="text" placeholder="Ask about this webpage" autocomplete="off" />
+          <button type="submit">Ask AI</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
+

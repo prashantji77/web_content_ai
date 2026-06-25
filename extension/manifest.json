@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "AI Web Content Summarizer & Research Assistant",
+  "version": "1.0.0",
+  "description": "Summarize, compare, and chat with webpages through a FastAPI AI backend.",
+  "permissions": ["activeTab", "scripting", "storage", "downloads"],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "action": {
+    "default_title": "AI Summarizer",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
