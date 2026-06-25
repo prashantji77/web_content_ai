@@ -196,13 +196,6 @@ Response:
 
 The backend returns user-friendly messages for invalid URLs, empty content, API timeouts, OpenRouter failures, and missing FAISS indexes. The extension displays those messages in the popup status area.
 
-## Screenshots Placeholder
-
-Add screenshots here after loading the extension:
-
-- Summary tab
-- Compare tab
-- Chat tab
 
 ## Notes
 
