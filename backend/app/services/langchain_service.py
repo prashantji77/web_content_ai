@@ -1,6 +1,9 @@
 import json
 import re
+import time
 from typing import Any
+
+import requests
 
 from app.core.config import settings
 from app.utils.errors import AIServiceError
@@ -8,10 +11,8 @@ from app.utils.text import extract_keywords, extractive_summary, limit_text, rel
 
 try:
     from langchain_core.prompts import PromptTemplate
-    from langchain_openai import ChatOpenAI
 except ImportError:  # Dependencies are installed from backend/requirements.txt.
     PromptTemplate = None
-    ChatOpenAI = None
 
 
 SUMMARY_PROMPT = """You are an expert content analyst.
@@ -62,6 +63,10 @@ class LangChainService:
     def __init__(self) -> None:
         self.llm = self._build_llm()
 
+    @property
+    def is_llm_configured(self) -> bool:
+        return bool(self.llm)
+
     def summarize(self, content: str) -> dict[str, Any]:
         if not self.llm:
             return self._fallback_summary(content)
@@ -71,7 +76,10 @@ class LangChainService:
             content=limit_text(content, settings.max_prompt_chars),
         )
         message = self._invoke(prompt)
-        data = self._parse_json(message)
+        try:
+            data = self._parse_json(message)
+        except AIServiceError:
+            data = self._summary_from_llm_text(message, content)
         return self._normalize_summary(data, content)
 
     def combined_summary(self, summaries: list[dict[str, Any]]) -> str:
@@ -97,7 +105,10 @@ class LangChainService:
         )
         prompt = self._format_prompt(COMPARISON_PROMPT, content=content)
         message = self._invoke(prompt)
-        data = self._parse_json(message)
+        try:
+            data = self._parse_json(message)
+        except AIServiceError:
+            data = self._comparison_from_llm_text(message)
         return {
             "similarities": self._string_list(data.get("similarities")),
             "differences": self._string_list(data.get("differences")),
@@ -121,34 +132,18 @@ class LangChainService:
     def _build_llm(self):
         if not settings.openrouter_api_key:
             return None
-        if ChatOpenAI is None:
-            raise AIServiceError(
-                "LangChain OpenAI integration is not installed. Run pip install -r backend/requirements.txt.",
-            )
+        return True
 
-        headers = {"X-Title": settings.openrouter_app_name}
+    @staticmethod
+    def _headers() -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "X-OpenRouter-Title": settings.openrouter_app_name,
+        }
         if settings.openrouter_site_url:
             headers["HTTP-Referer"] = settings.openrouter_site_url
-
-        kwargs = {
-            "model": settings.openrouter_model,
-            "api_key": settings.openrouter_api_key,
-            "base_url": settings.openrouter_base_url,
-            "temperature": settings.temperature,
-            "timeout": settings.llm_timeout_seconds,
-            "default_headers": headers,
-        }
-        try:
-            return ChatOpenAI(**kwargs)
-        except TypeError:
-            return ChatOpenAI(
-                model_name=settings.openrouter_model,
-                openai_api_key=settings.openrouter_api_key,
-                openai_api_base=settings.openrouter_base_url,
-                temperature=settings.temperature,
-                request_timeout=settings.llm_timeout_seconds,
-                default_headers=headers,
-            )
+        return headers
 
     @staticmethod
     def _format_prompt(template: str, **values: str) -> str:
@@ -157,11 +152,87 @@ class LangChainService:
         return PromptTemplate.from_template(template).format(**values)
 
     def _invoke(self, prompt: str) -> str:
+        url = f"{settings.openrouter_base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": settings.openrouter_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": settings.temperature,
+        }
+
+        # Free OpenRouter models are heavily rate limited (HTTP 429). Retry a few times with
+        # backoff so transient throttling doesn't surface as a hard failure.
+        max_attempts = 4
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                response = requests.post(
+                    url,
+                    headers=self._headers(),
+                    json=payload,
+                    timeout=settings.llm_timeout_seconds,
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except requests.HTTPError as exc:
+                last_exc = exc
+                status = exc.response.status_code if exc.response is not None else None
+                if status in (429, 502, 503) and attempt < max_attempts - 1:
+                    retry_after = self._retry_after_seconds(exc.response, attempt)
+                    time.sleep(retry_after)
+                    continue
+                detail = self._response_error(exc.response)
+                raise AIServiceError(f"OpenRouter request failed: {detail}") from exc
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt < max_attempts - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise AIServiceError(f"OpenRouter request failed: {exc}") from exc
+            except ValueError as exc:
+                raise AIServiceError("OpenRouter returned a non-JSON response.") from exc
+        else:  # pragma: no cover - loop always breaks or raises
+            raise AIServiceError(f"OpenRouter request failed: {last_exc}")
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise AIServiceError("OpenRouter returned no completion choices.")
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in content
+            )
+        if not content:
+            raise AIServiceError("OpenRouter returned an empty response.")
+        return str(content)
+
+    @staticmethod
+    def _retry_after_seconds(response, attempt: int) -> float:
+        default = min(2 ** attempt, 8)
+        if response is None:
+            return default
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(default, min(float(header), 15))
+            except ValueError:
+                return default
+        return default
+
+    @staticmethod
+    def _response_error(response) -> str:
+        if response is None:
+            return "unknown HTTP error"
         try:
-            result = self.llm.invoke(prompt)
-        except Exception as exc:
-            raise AIServiceError(f"OpenRouter request failed: {exc}") from exc
-        return str(getattr(result, "content", result))
+            data = response.json()
+        except ValueError:
+            data = {}
+        message = data.get("error", {}).get("message") or data.get("detail")
+        if message:
+            return f"{response.status_code} {message}"
+        return f"{response.status_code} {response.text[:300]}"
 
     @staticmethod
     def _parse_json(message: str) -> dict[str, Any]:
@@ -190,6 +261,34 @@ class LangChainService:
             ),
             "key_points": self._string_list(data.get("key_points")) or fallback["key_points"],
             "keywords": self._string_list(data.get("keywords")) or fallback["keywords"],
+        }
+
+    @staticmethod
+    def _summary_from_llm_text(message: str, content: str) -> dict[str, Any]:
+        cleaned = message.strip()
+        bullet_lines = [
+            re.sub(r"^[\-*\d.)\s]+", "", line).strip()
+            for line in cleaned.splitlines()
+            if line.strip().startswith(("-", "*")) or re.match(r"^\d+[.)]\s+", line.strip())
+        ]
+        return {
+            "short_summary": extractive_summary(cleaned, sentence_count=2),
+            "detailed_summary": cleaned,
+            "key_points": bullet_lines[:6] or relevant_sentences(cleaned, "", max_sentences=5),
+            "keywords": extract_keywords(content, limit=10),
+        }
+
+    @staticmethod
+    def _comparison_from_llm_text(message: str) -> dict[str, Any]:
+        lines = [
+            re.sub(r"^[\-*\d.)\s]+", "", line).strip()
+            for line in message.splitlines()
+            if line.strip()
+        ]
+        return {
+            "similarities": lines[:3],
+            "differences": lines[3:8],
+            "conclusion": message.strip() or "No comparison was generated.",
         }
 
     @staticmethod

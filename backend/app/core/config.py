@@ -5,7 +5,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(BACKEND_DIR / ".env")
+PROJECT_ROOT = BACKEND_DIR.parent
+
+# Load the project-root .env first, then backend/.env (backend overrides root if both exist).
+# The user's API keys live in the repository-root .env, so it must be loaded.
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(BACKEND_DIR / ".env", override=True)
 
 
 def _get_bool(name: str, default: bool) -> bool:
@@ -48,7 +53,10 @@ def _get_path(name: str, default: Path) -> Path:
 @dataclass(frozen=True)
 class Settings:
     openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
-    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    openrouter_model: str = os.getenv(
+        "OPENROUTER_MODEL",
+        "openai/gpt-oss-120b:free",
+    )
     openrouter_base_url: str = os.getenv(
         "OPENROUTER_BASE_URL",
         "https://openrouter.ai/api/v1",
@@ -69,12 +77,18 @@ class Settings:
     max_prompt_chars: int = _get_int("MAX_PROMPT_CHARS", 18000)
     max_pages_per_request: int = _get_int("MAX_PAGES_PER_REQUEST", 8)
     min_content_length: int = _get_int("MIN_CONTENT_LENGTH", 120)
+    chunk_size: int = _get_int("CHUNK_SIZE", 800)
+    chunk_overlap: int = _get_int("CHUNK_OVERLAP", 160)
+    retriever_k: int = _get_int("RETRIEVER_K", 6)
+    retriever_fetch_k: int = _get_int("RETRIEVER_FETCH_K", 20)
+    retriever_search_type: str = os.getenv("RETRIEVER_SEARCH_TYPE", "mmr").lower()
     temperature: float = _get_float("LLM_TEMPERATURE", 0.2)
     faiss_storage_dir: Path = _get_path("FAISS_STORAGE_DIR", BACKEND_DIR / "storage" / "faiss")
     persist_faiss: bool = _get_bool("PERSIST_FAISS", True)
     user_agent: str = os.getenv(
         "USER_AGENT",
-        "Mozilla/5.0 (compatible; AI-Web-Content-Summarizer/1.0)",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     )
 
     @property
@@ -85,4 +99,3 @@ class Settings:
 
 
 settings = Settings()
-

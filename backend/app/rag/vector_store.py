@@ -138,7 +138,7 @@ class VectorStoreService:
                 "No FAISS index was found for this page. Index the page before chatting.",
             )
 
-        docs = session.store.similarity_search(question, k=5)
+        docs = self._retrieve(session.store, question)
         context = "\n\n".join(doc.page_content for doc in docs)
         answer = self.ai_service.answer_question(context, question)
         return {
@@ -153,6 +153,25 @@ class VectorStoreService:
                 for doc in docs
             ],
         }
+
+    @staticmethod
+    def _retrieve(store, question: str) -> list[Document]:
+        k = settings.retriever_k
+        # MMR diversifies results so the context isn't filled with near-duplicate chunks,
+        # which improves answer quality for semantic search. Falls back to plain similarity
+        # search for the local store (which doesn't implement MMR).
+        if settings.retriever_search_type == "mmr" and hasattr(
+            store, "max_marginal_relevance_search"
+        ):
+            try:
+                return store.max_marginal_relevance_search(
+                    question,
+                    k=k,
+                    fetch_k=settings.retriever_fetch_k,
+                )
+            except (TypeError, ValueError):
+                pass
+        return store.similarity_search(question, k=k)
 
     def _build_embeddings(self):
         if (
@@ -174,19 +193,21 @@ class VectorStoreService:
 
     @staticmethod
     def _split_text(text: str) -> list[str]:
+        chunk_size = settings.chunk_size
+        overlap = min(settings.chunk_overlap, max(chunk_size - 1, 0))
+
         if RecursiveCharacterTextSplitter is None:
-            chunk_size = 1500
-            overlap = 200
             chunks = []
             start = 0
+            step = max(chunk_size - overlap, 1)
             while start < len(text):
                 chunks.append(text[start : start + chunk_size])
-                start += chunk_size - overlap
+                start += step
             return chunks
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=200,
+            chunk_size=chunk_size,
+            chunk_overlap=overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
         return splitter.split_text(text)

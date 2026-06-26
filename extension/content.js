@@ -1,8 +1,12 @@
 function extractVisibleText() {
-  const clone = document.body.cloneNode(true);
-  clone.querySelectorAll("script, style, noscript, svg, canvas, iframe").forEach((node) => {
-    node.remove();
-  });
+  const root = document.querySelector("article") || document.querySelector("main") || document.body;
+  if (!root) {
+    return "";
+  }
+  const clone = root.cloneNode(true);
+  clone
+    .querySelectorAll("script, style, noscript, svg, canvas, iframe, nav, aside, footer, form")
+    .forEach((node) => node.remove());
   return clone.innerText.replace(/\s+/g, " ").trim();
 }
 
@@ -11,7 +15,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({
       url: location.href,
       title: document.title,
-      text: extractVisibleText(),
+      content: extractVisibleText(),
     });
   }
 });

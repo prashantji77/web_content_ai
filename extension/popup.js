@@ -56,6 +56,48 @@ async function loadCurrentTab() {
   $("#pageTitle").textContent = tab?.title || "Current page";
 }
 
+// Grab the rendered page text straight from the tab's DOM. This is far more reliable
+// than server-side scraping for sites that block bots or render with JavaScript
+// (Reuters, Bloomberg, paywalled/consent-walled pages, etc.). Falls back to null so
+// the backend can still try to fetch the URL itself.
+async function getPageContent() {
+  const tabId = state.currentTab?.id;
+  if (!tabId) {
+    return null;
+  }
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const root =
+          document.querySelector("article") ||
+          document.querySelector("main") ||
+          document.body;
+        if (!root) {
+          return null;
+        }
+        const clone = root.cloneNode(true);
+        clone
+          .querySelectorAll(
+            "script, style, noscript, svg, canvas, iframe, nav, aside, footer, form"
+          )
+          .forEach((node) => node.remove());
+        return {
+          title: document.title,
+          content: clone.innerText.replace(/\s+/g, " ").trim(),
+        };
+      },
+    });
+    const result = injection?.result;
+    if (result?.content && result.content.length >= 120) {
+      return result;
+    }
+  } catch (error) {
+    // Some pages (chrome://, the web store) disallow injection; let the backend try the URL.
+  }
+  return null;
+}
+
 async function summarizeCurrentPage() {
   if (!isWebUrl(state.currentTab?.url)) {
     setStatus("Open an http or https webpage before summarizing.", true);
@@ -63,7 +105,12 @@ async function summarizeCurrentPage() {
   }
 
   await withBusy($("#summarizeBtn"), "Summarizing", async () => {
-    const result = await postJson("/summarize", { url: state.currentTab.url });
+    const page = await getPageContent();
+    const result = await postJson("/summarize", {
+      url: state.currentTab.url,
+      title: page?.title,
+      content: page?.content,
+    });
     state.latestSummary = result;
     renderSummary(result);
     setStatus("Summary ready.");
@@ -109,9 +156,12 @@ async function indexCurrentPage() {
   }
 
   await withBusy($("#indexBtn"), "Indexing", async () => {
+    const page = await getPageContent();
     const result = await postJson("/index-page", {
       url: state.currentTab.url,
       session_id: state.currentSessionId,
+      title: page?.title,
+      content: page?.content,
     });
     state.indexed = true;
     setStatus(`Indexed ${result.chunks_indexed} content chunks.`);

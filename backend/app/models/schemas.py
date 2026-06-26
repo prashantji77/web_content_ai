@@ -1,21 +1,45 @@
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
+
+
+class BrowserPage(BaseModel):
+    url: HttpUrl
+    title: str | None = None
+    content: str = Field(..., min_length=1)
 
 
 class SummarizeRequest(BaseModel):
     url: HttpUrl
+    title: str | None = None
+    content: str | None = None
 
 
 class MultiSummaryRequest(BaseModel):
-    urls: list[HttpUrl] = Field(..., min_length=1, max_length=10)
+    urls: list[HttpUrl] = Field(default_factory=list, max_length=10)
+    pages: list[BrowserPage] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_input(self):
+        if not self.urls and not self.pages:
+            raise ValueError("Provide at least one URL or browser page.")
+        return self
 
 
 class CompareRequest(BaseModel):
-    urls: list[HttpUrl] = Field(..., min_length=2, max_length=10)
+    urls: list[HttpUrl] = Field(default_factory=list, max_length=10)
+    pages: list[BrowserPage] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_input(self):
+        if len(self.urls) + len(self.pages) < 2:
+            raise ValueError("Provide at least two URLs or browser pages to compare.")
+        return self
 
 
 class IndexPageRequest(BaseModel):
     url: HttpUrl
     session_id: str = Field("default", min_length=1, max_length=80)
+    title: str | None = None
+    content: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -65,4 +89,3 @@ class SourceChunk(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceChunk] = Field(default_factory=list)
-

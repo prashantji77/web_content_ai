@@ -26,7 +26,26 @@ class ExtractedPage:
 class ContentExtractor:
     def __init__(self) -> None:
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": settings.user_agent})
+        # Send a full, browser-like header set. Many sites (Reuters, Bloomberg, etc.)
+        # reject requests that look like bots, so a realistic UA + Accept headers are
+        # required to avoid 403/429 responses.
+        self.session.headers.update(
+            {
+                "User-Agent": settings.user_agent,
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    "image/avif,image/webp,*/*;q=0.8"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+        )
 
     def extract_from_url(self, url: str) -> ExtractedPage:
         self._validate_url(url)
