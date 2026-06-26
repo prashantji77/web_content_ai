@@ -139,7 +139,9 @@ class LangChainService:
         headers = {
             "Authorization": f"Bearer {settings.openrouter_api_key}",
             "Content-Type": "application/json",
-            "X-OpenRouter-Title": settings.openrouter_app_name,
+            # OpenRouter attributes requests to an app via the "X-Title" header (shown in
+            # the Activity dashboard). The previous "X-OpenRouter-Title" header is ignored.
+            "X-Title": settings.openrouter_app_name,
         }
         if settings.openrouter_site_url:
             headers["HTTP-Referer"] = settings.openrouter_site_url
